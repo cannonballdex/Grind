@@ -290,3 +290,5 @@ the tank is the puller
 group members follow via chase
 
 RGMercs handles combat rotations
+
+Author: Cannonballdex
