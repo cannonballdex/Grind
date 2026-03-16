@@ -1,3 +1,6 @@
+--Grind by Cannonballdex
+--Missions: The Call, The Crusaders, Shei Vinitras
+
 local mq = require('mq')
 local ImGui = require('ImGui')
 
