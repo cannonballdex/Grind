@@ -1,6 +1,3 @@
---Grind by Cannonballdex
---Missions: The Call, The Crusaders, Shei Vinitras
-
 local mq = require('mq')
 local ImGui = require('ImGui')
 
@@ -11,6 +8,7 @@ local missions = {
     { name = "The Call", file = "grind/thecall.lua" },
     { name = "The Crusaders", file = "grind/thecrusaders.lua" },
     { name = "Shei Vinitras", file = "grind/shei.lua" },
+    { name = "The Control Room", file = "grind/thecontrolroom.lua" },
 }
 
 local function RunScript(script)

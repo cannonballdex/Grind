@@ -12,10 +12,6 @@ local INSIGNIA_NAME = "Fellowship Registration Insignia"
 local GROUP_STEP_RADIUS = 100
 local GROUP_WAIT_TIMEOUT_MS = 60000
 
-local REQUEST_NPC = "Lokta Geroth"
-local REQUEST_PHRASE = "warlord"
-local ZONEIN_PHRASE = "ready"
-
 local sessionEnded = false
 local pullStarted = false
 
@@ -40,30 +36,6 @@ local function nearbyFellowshipCount()
     return mq.TLO.SpawnCount(('radius %d fellowship'):format(CAMPFIRE_RADIUS))() or 0
 end
 
-local function hasCampfire()
-    return mq.TLO.Me.Fellowship.Campfire() == true
-end
-
-local function campfireZoneID()
-    return mq.TLO.Me.Fellowship.CampfireZone.ID() or 0
-end
-
-local function waitForCampfire(timeoutMs)
-    local waited = 0
-    local interval = 500
-
-    while waited < timeoutMs do
-        if hasCampfire() then
-            return true
-        end
-
-        mq.delay(interval)
-        waited = waited + interval
-    end
-
-    return false
-end
-
 local function insigniaReady()
     local insignia = mq.TLO.FindItem(INSIGNIA_NAME)
     if not insignia() then
@@ -84,17 +56,17 @@ end
 local function startTankPulling()
     mq.cmd('/rgl unpause')
     mq.delay(500)
-    mq.cmd('/rgl set PullMode 3')
+    -- switch tank into hunt mode
+    mq.cmd('/rgl set PullMode 3') -- Hunt
     mq.delay(500)
     mq.cmd('/rgl pullstart')
-    mq.delay(500)
-    print('\agTank switched to pull mode and pulling started.')
 end
 
 local function stopTankPulling()
     mq.cmd('/rgl pullstop')
     mq.delay(500)
     mq.cmd('/rgl set PullMode 1') -- Normal
+    mq.delay(500)
 end
 
 local function allGroupMembersWithin(distance)
@@ -103,16 +75,14 @@ local function allGroupMembersWithin(distance)
     for i = 1, members do
         local member = mq.TLO.Group.Member(i)
         if member and member.Name() and member.Present() then
-            local memberName = member.Name() or ('group member %d'):format(i)
-            local memberDistance = tonumber(member.Distance()) or 999999
-
+            local memberDistance = member.Distance() or 999999
             if memberDistance > distance then
-                return false, memberName, memberDistance
+                return false, member.Name(), memberDistance
             end
         end
     end
 
-    return true, nil, 0
+    return true
 end
 
 local function waitForGroupWithin(distance, timeoutMs, stepName)
@@ -130,15 +100,14 @@ local function waitForGroupWithin(distance, timeoutMs, stepName)
             return true
         end
 
-        local safeMemberName = memberName or 'unknown'
-        local safeMemberDistance = tonumber(memberDistance) or 999999
-
-        print(('\ayWaiting for %s to get within %d (%d away) before %s.'):format(
-            safeMemberName,
-            distance,
-            math.floor(safeMemberDistance),
-            stepName
-        ))
+        if memberName then
+            print(('\ayWaiting for %s to get within %d (%d away) before %s.'):format(
+                memberName,
+                distance,
+                math.floor(memberDistance),
+                stepName
+            ))
+        end
 
         mq.delay(interval)
         waited = waited + interval
@@ -153,33 +122,27 @@ local function groupReadyAtCamp()
 end
 
 local function setGroupChase()
+    -- Put the rest of the group in chase mode.
     mq.cmd('/noparse /dgge /rgl chaseon')
     mq.delay(1000)
 
+    -- Make sure the tank is not camped.
     mq.cmd('/rgl campoff')
     mq.delay(500)
 end
 
-local function groupSayBreakingInvis(text)
-    mq.cmd('/rgl set_all BreakInvisForSay 1')
-    mq.delay(500)
-    mq.cmdf('/rgl say %s', text)
-    mq.delay(1500)
-    mq.cmd('/rgl set_all BreakInvisForSay 0')
-    mq.delay(500)
-end
-
 local function dropcampfire()
-    if inZone(TASK_ZONE_ID)
-        and not hasCampfire()
+    if mq.TLO.Me.Fellowship.CampfireZone.ID() == nil
         and not isHovering()
         and nearbyFellowshipCount() > 2
-        and hasTask()
         and getTaskTimer() > TASK_TIMER_THRESHOLD then
 
         print('\agPreparing to drop campfire while group remains paused')
 
         mq.delay(1000)
+        mq.cmd('/noparse /dgga /rgl chaseon')
+        mq.delay(1000)
+
         mq.cmd('/windowstate FellowshipWnd open')
         mq.delay(1000)
         mq.cmd('/nomodkey /notify FellowshipWnd FP_Subwindows tabselect 2')
@@ -193,11 +156,7 @@ local function dropcampfire()
         mq.cmd('/windowstate FellowshipWnd close')
         mq.delay(1000)
 
-        if waitForCampfire(10000) then
-            print('\agDropped a Campfire')
-        else
-            print('\arCampfire was not detected after attempting to create it.')
-        end
+        print('\agDropped a Campfire')
     end
 end
 
@@ -209,16 +168,18 @@ local function checkmode()
     if hasTask()
         and getTaskTimer() > TASK_TIMER_THRESHOLD
         and groupReadyAtCamp()
-        and hasCampfire() then
+        and mq.TLO.Me.Fellowship.CampfireZone.ID() ~= nil then
 
         print('\agCampfire detected. Switching group to chase and tank to pull mode.')
 
         setGroupChase()
         mq.delay(2000)
 
+        -- Only now unpause, after campfire is set and chase mode is ready.
         rgUnpauseAll()
         mq.delay(2000)
 
+        -- Tank begins pulling.
         startTankPulling()
         pullStarted = true
 
@@ -227,12 +188,11 @@ local function checkmode()
 end
 
 local function checkcamp()
-    if campfireZoneID() ~= mq.TLO.Zone.ID()
-        and hasCampfire()
+    if mq.TLO.Me.Fellowship.CampfireZone.ID() ~= mq.TLO.Zone.ID()
         and insigniaReady() then
 
         mq.cmd('/makemevisible')
-        mq.cmd('/useitem Fellowship Registration Insignia')
+        mq.cmdf('/useitem "%s"', INSIGNIA_NAME)
         mq.delay(2000)
         print('\ayClicking back to camp!')
     end
@@ -252,23 +212,31 @@ local function checktask()
     pullStarted = false
 
     mq.delay(1000)
+
+    -- Pause everyone before requesting the mission.
     rgPauseAll()
     mq.delay(1000)
 
-    mq.cmdf('/dgga /nav spawn %s', REQUEST_NPC)
+    mq.cmd('/dgga /nav spawn Lokta Geroth')
     mq.delay(1000)
-    mq.cmdf('/dgga /target %s', REQUEST_NPC)
+    mq.cmd('/dgga /target Lokta Geroth')
     mq.delay(1000)
 
-    mq.cmdf('/say %s', REQUEST_PHRASE)
+    mq.cmd('/say warlord')
     mq.delay(60000)
 
     if not waitForGroupWithin(GROUP_STEP_RADIUS, GROUP_WAIT_TIMEOUT_MS, 'saying ready') then
         return
     end
 
-    groupSayBreakingInvis(ZONEIN_PHRASE)
+    -- Make sure everyone drops invis before saying ready to enter.
+    mq.cmd('/dgga /makemevisible')
+    mq.delay(500)
 
+    mq.cmd('/dgga /say ready')
+    mq.delay(1000)
+
+    -- Intentionally stay paused here until campfire is set and chase mode is ready.
     print('\agMission requested. Group remains paused until campfire is set and chase mode is ready.')
 end
 
@@ -325,9 +293,8 @@ end
 local function checkgroup()
     for i = 1, mq.TLO.Group.Members() do
         local member = mq.TLO.Group.Member(i)
-        if member and member.Present() and not isHovering() then
-            local memberDistance = tonumber(member.Distance()) or 999999
-            if memberDistance > 75 then
+        if member then
+            if member.Present() and member.Distance() > 75 and not isHovering() then
                 mq.cmdf('/dex %s /nav spawn %s', member.Name(), mq.TLO.Me.CleanName())
                 print('\ag-----TheControlRoom.lua running----')
             end
@@ -379,4 +346,5 @@ while true do
 
     dead()
     mq.delay(1000)
+
 end
